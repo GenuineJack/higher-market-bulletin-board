@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Simple ETH Forum</title>
+</head>
+<body>
+  <h1>HIGHER MARKET BULLETIN BOARD</h1>
+  <button id="loginButton">CONNECT</button>
+  <div id="userInfo"></div>
+  
+  <h2>Create a Post</h2>
+  <textarea id="postContent" rows="4" cols="50" placeholder="Write your post here..."></textarea><br>
+  <button id="createPostButton">Create Post</button>
+  
+  <h2>Posts</h2>
+  <div id="posts"></div>
+  
+  <!-- Load ethers.js from a CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers/dist/ethers.min.js"></script>
+  <script>
+    const apiBase = 'http://localhost:3000'; // Our backend API endpoint
+    let userToken = null;
+    let walletAddress = null;
+    
+    // Login function using MetaMask
+    async function login() {
+      if (typeof window.ethereum === 'undefined') {
+        alert("MetaMask is not installed!");
+        return;
+      }
+      
+      // Request connection to MetaMask
+      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+      walletAddress = accounts[0];
+      
+      // Request a nonce from the server
+      let response = await fetch(apiBase + '/auth/request_nonce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress })
+      });
+      const data = await response.json();
+      const nonce = data.nonce;
+      
+      // Prepare the message to sign
+      const message = `Login nonce: ${nonce}`;
+      
+      // Use ethers.js to get the signer and sign the message
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const signer = provider.getSigner();
+      const signature = await signer.signMessage(message);
+      
+      // Send the signed message back to the server for verification
+      response = await fetch(apiBase + '/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress, signature })
+      });
+      const result = await response.json();
+      if (result.token) {
+        userToken = result.token;
+        document.getElementById('userInfo').innerText = "Logged in as: " + walletAddress;
+        loadPosts(); // Load posts once logged in
+      } else {
+        alert("Login failed");
+      }
+    }
+    
+    // Create a new post by calling the backend endpoint
+    async function createPost() {
+      const content = document.getElementById('postContent').value;
+      const response = await fetch(apiBase + '/posts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': userToken
+        },
+        body: JSON.stringify({ content })
+      });
+      const data = await response.json();
+      if (data.post) {
+        document.getElementById('postContent').value = "";
+        loadPosts();
+      } else {
+        alert("Error creating post");
+      }
+    }
+    
+    // Load and display all posts from the server
+    async function loadPosts() {
+      const response = await fetch(apiBase + '/posts');
+      const data = await response.json();
+      const postsDiv = document.getElementById('posts');
+      postsDiv.innerHTML = "";
+      data.posts.forEach(post => {
+        const postDiv = document.createElement('div');
+        postDiv.style.border = "1px solid black";
+        postDiv.style.margin = "10px";
+        postDiv.style.padding = "10px";
+        postDiv.innerHTML = `
+          <p><strong>Author:</strong> ${post.author}</p>
+          <p>${post.content}</p>
+          <p>Upvotes: ${post.upvotes} Downvotes: ${post.downvotes}</p>
+          <button onclick="upvote('${post.id}')">Upvote</button>
+          <button onclick="downvote('${post.id}')">Downvote</button>
+          <h4>Replies</h4>
+          <div id="replies-${post.id}"></div>
+          <textarea id="reply-${post.id}" rows="2" cols="50" placeholder="Write a reply..."></textarea><br>
+          <button onclick="replyPost('${post.id}')">Reply</button>
+        `;
+        postsDiv.appendChild(postDiv);
+        
+        const repliesDiv = document.getElementById(`replies-${post.id}`);
+        post.replies.forEach(reply => {
+          const replyDiv = document.createElement('div');
+          replyDiv.style.border = "1px solid gray";
+          replyDiv.style.margin = "5px";
+          replyDiv.style.padding = "5px";
+          replyDiv.innerHTML = `<p><strong>${reply.author}</strong>: ${reply.content}</p>`;
+          repliesDiv.appendChild(replyDiv);
+        });
+      });
+    }
+    
+    // Upvote a post
+    async function upvote(postId) {
+      await fetch(apiBase + '/posts/' + postId + '/upvote', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': userToken
+        }
+      });
+      loadPosts();
+    }
+    
+    // Downvote a post
+    async function downvote(postId) {
+      await fetch(apiBase + '/posts/' + postId + '/downvote', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': userToken
+        }
+      });
+      loadPosts();
+    }
+    
+    // Reply to a post
+    async function replyPost(postId) {
+      const replyContent = document.getElementById('reply-' + postId).value;
+      await fetch(apiBase + '/posts/' + postId + '/replies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': userToken
+        },
+        body: JSON.stringify({ content: replyContent })
+      });
+      loadPosts();
+    }
+    
+    // Event listeners for the buttons
+    document.getElementById('loginButton').addEventListener('click', login);
+    document.getElementById('createPostButton').addEventListener('click', createPost);
+  </script>
+</body>
+</html>

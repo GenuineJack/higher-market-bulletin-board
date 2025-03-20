@@ -1,1 +1,2 @@
-A HIGHER MARKET PROJECT
+A simple community bulletin board project for Higher Market 
+
